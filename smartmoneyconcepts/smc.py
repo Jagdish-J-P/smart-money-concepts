@@ -721,13 +721,14 @@ class smc:
         This method returns the previous high and low of the given time frame.
 
         parameters:
-        time_frame: str - the time frame to get the previous high and low 15m, 1H, 4H, 1D, 1W, 1M
+        time_frame: str - the time frame to get the previous high and low 15Min, 1H, 4H, 1D, 1W, 1M
 
         returns:
         PreviousHigh = the previous high
         PreviousLow = the previous low
         BrokenHigh = 1 once price has broken the previous high of the timeframe, 0 otherwise
         BrokenLow = 1 once price has broken the previous low of the timeframe, 0 otherwise
+        BrokenIndex = the index of the candle that broke the level
         """
 
         ohlc.index = pd.to_datetime(ohlc.index)
@@ -736,6 +737,7 @@ class smc:
         previous_low = np.zeros(len(ohlc), dtype=np.float32)
         broken_high = np.zeros(len(ohlc), dtype=np.int32)
         broken_low = np.zeros(len(ohlc), dtype=np.int32)
+        broken_index = np.zeros(len(ohlc), dtype=np.int32)
 
         resampled_ohlc = ohlc.resample(time_frame).agg(
             {
@@ -771,13 +773,15 @@ class smc:
             currently_broken_low = ohlc["low"].iloc[i] < previous_low[i] or currently_broken_low
             broken_high[i] = 1 if currently_broken_high else 0
             broken_low[i] = 1 if currently_broken_low else 0
+            broken_index[i] = i if (broken_high[i] == 1 or broken_low[i] == 1) else 0
 
         previous_high = pd.Series(previous_high, name="PreviousHigh")
         previous_low = pd.Series(previous_low, name="PreviousLow")
         broken_high = pd.Series(broken_high, name="BrokenHigh")
         broken_low = pd.Series(broken_low, name="BrokenLow")
+        broken_index = pd.Series(broken_index, name="BrokenIndex")
 
-        return pd.concat([previous_high, previous_low, broken_high, broken_low], axis=1)
+        return pd.concat([previous_high, previous_low, broken_high, broken_low, broken_index], axis=1)
 
     @classmethod
     def sessions(
