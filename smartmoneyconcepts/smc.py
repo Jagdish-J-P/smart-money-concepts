@@ -4,6 +4,7 @@ import numpy as np
 from pandas import DataFrame, Series
 from datetime import datetime
 
+
 def inputvalidator(input_="ohlc"):
     def dfcheck(func):
         @wraps(func)
@@ -53,7 +54,8 @@ class smc:
     __version__ = "0.0.26"
 
     @classmethod
-    def fvg(cls, ohlc: DataFrame, join_consecutive=False) -> Series:
+    def fvg(cls, ohlc: DataFrame, join_consecutive=False, mitigation_percentage=0,
+            mitigation_index_after=2) -> DataFrame:
         """
         FVG - Fair Value Gap
         A fair value gap is when the previous high is lower than the next low if the current candle is bullish.
@@ -61,6 +63,8 @@ class smc:
 
         parameters:
         join_consecutive: bool - if there are multiple FVG in a row then they will be merged into one using the highest top and the lowest bottom
+        mitigation_percentage: float - consider mitigated if low is retraced to this percentage between 0-1
+        mitigation_index_after: int - check for mitigation after this index
 
         returns:
         FVG = 1 if bullish fair value gap, -1 if bearish fair value gap
@@ -71,12 +75,12 @@ class smc:
 
         fvg = np.where(
             (
-                (ohlc["high"].shift(1) < ohlc["low"].shift(-1))
-                & (ohlc["close"] > ohlc["open"])
+                    (ohlc["high"].shift(1) < ohlc["low"].shift(-1))
+                    & (ohlc["close"] > ohlc["open"])
             )
             | (
-                (ohlc["low"].shift(1) > ohlc["high"].shift(-1))
-                & (ohlc["close"] < ohlc["open"])
+                    (ohlc["low"].shift(1) > ohlc["high"].shift(-1))
+                    & (ohlc["close"] < ohlc["open"])
             ),
             np.where(ohlc["close"] > ohlc["open"], 1, -1),
             np.nan,
@@ -114,9 +118,11 @@ class smc:
         for i in np.where(~np.isnan(fvg))[0]:
             mask = np.zeros(len(ohlc), dtype=np.bool_)
             if fvg[i] == 1:
-                mask = ohlc["low"][i + 2 :] <= top[i]
+                mitigation_level = top[i] - (top[i] - bottom[i]) * mitigation_percentage
+
+                mask = ohlc["low"][i + mitigation_index_after:] <= mitigation_level
             elif fvg[i] == -1:
-                mask = ohlc["high"][i + 2 :] >= bottom[i]
+                mask = ohlc["high"][i + mitigation_index_after:] >= bottom[i]
             if np.any(mask):
                 j = np.argmax(mask) + i + 2
                 mitigated_index[i] = j
@@ -134,7 +140,7 @@ class smc:
         )
 
     @classmethod
-    def swing_highs_lows(cls, ohlc: DataFrame, swing_length: int = 50) -> Series:
+    def swing_highs_lows(cls, ohlc: DataFrame, swing_length: int = 50) -> DataFrame:
         """
         Swing Highs and Lows
         A swing high is when the current high is the highest high out of the swing_length amount of candles before and after.
@@ -210,18 +216,22 @@ class smc:
             np.nan,
         )
 
+        # get the indices of the respective swing high or low
+        indices = np.where(~np.isnan(swing_highs_lows), np.arange(len(ohlc)), np.nan)
+
         return pd.concat(
             [
                 pd.Series(swing_highs_lows, name="HighLow"),
                 pd.Series(level, name="Level"),
+                pd.Series(indices, name="Index"),
             ],
             axis=1,
         )
 
     @classmethod
     def bos_choch(
-        cls, ohlc: DataFrame, swing_highs_lows: DataFrame, close_break: bool = True
-    ) -> Series:
+            cls, ohlc: DataFrame, swing_highs_lows: DataFrame, close_break: bool = True
+    ) -> DataFrame:
         """
         BOS - Break of Structure
         CHoCH - Change of Character
@@ -258,13 +268,13 @@ class smc:
                     bos[last_positions[-2]] = (
                         1
                         if (
-                            np.all(highs_lows_order[-4:] == [-1, 1, -1, 1])
-                            and np.all(
-                                level_order[-4]
-                                < level_order[-2]
-                                < level_order[-3]
-                                < level_order[-1]
-                            )
+                                np.all(highs_lows_order[-4:] == [-1, 1, -1, 1])
+                                and np.all(
+                            level_order[-4]
+                            < level_order[-2]
+                            < level_order[-3]
+                            < level_order[-1]
+                        )
                         )
                         else 0
                     )
@@ -276,13 +286,13 @@ class smc:
                     bos[last_positions[-2]] = (
                         -1
                         if (
-                            np.all(highs_lows_order[-4:] == [1, -1, 1, -1])
-                            and np.all(
-                                level_order[-4]
-                                > level_order[-2]
-                                > level_order[-3]
-                                > level_order[-1]
-                            )
+                                np.all(highs_lows_order[-4:] == [1, -1, 1, -1])
+                                and np.all(
+                            level_order[-4]
+                            > level_order[-2]
+                            > level_order[-3]
+                            > level_order[-1]
+                        )
                         )
                         else bos[last_positions[-2]]
                     )
@@ -294,13 +304,13 @@ class smc:
                     choch[last_positions[-2]] = (
                         1
                         if (
-                            np.all(highs_lows_order[-4:] == [-1, 1, -1, 1])
-                            and np.all(
-                                level_order[-1]
-                                > level_order[-3]
-                                > level_order[-4]
-                                > level_order[-2]
-                            )
+                                np.all(highs_lows_order[-4:] == [-1, 1, -1, 1])
+                                and np.all(
+                            level_order[-1]
+                            > level_order[-3]
+                            > level_order[-4]
+                            > level_order[-2]
+                        )
                         )
                         else 0
                     )
@@ -314,13 +324,13 @@ class smc:
                     choch[last_positions[-2]] = (
                         -1
                         if (
-                            np.all(highs_lows_order[-4:] == [1, -1, 1, -1])
-                            and np.all(
-                                level_order[-1]
-                                < level_order[-3]
-                                < level_order[-4]
-                                < level_order[-2]
-                            )
+                                np.all(highs_lows_order[-4:] == [1, -1, 1, -1])
+                                and np.all(
+                            level_order[-1]
+                            < level_order[-3]
+                            < level_order[-4]
+                            < level_order[-2]
+                        )
                         )
                         else choch[last_positions[-2]]
                     )
@@ -337,10 +347,10 @@ class smc:
             mask = np.zeros(len(ohlc), dtype=np.bool_)
             # if the bos is 1 then check if the candles high has gone above the level
             if bos[i] == 1 or choch[i] == 1:
-                mask = ohlc["close" if close_break else "high"][i + 2 :] > level[i]
+                mask = ohlc["close" if close_break else "high"][i + 2:] > level[i]
             # if the bos is -1 then check if the candles low has gone below the level
             elif bos[i] == -1 or choch[i] == -1:
-                mask = ohlc["close" if close_break else "low"][i + 2 :] < level[i]
+                mask = ohlc["close" if close_break else "low"][i + 2:] < level[i]
             if np.any(mask):
                 j = np.argmax(mask) + i + 2
                 broken[i] = j
@@ -353,7 +363,7 @@ class smc:
 
         # remove the ones that aren't broken
         for i in np.where(
-            np.logical_and(np.logical_or(bos != 0, choch != 0), broken == 0)
+                np.logical_and(np.logical_or(bos != 0, choch != 0), broken == 0)
         )[0]:
             bos[i] = 0
             choch[i] = 0
@@ -374,11 +384,11 @@ class smc:
 
     @classmethod
     def ob(
-        cls,
-        ohlc: DataFrame,
-        swing_highs_lows: DataFrame,
-        close_mitigation: bool = False,
-    ) -> Series:
+            cls,
+            ohlc: DataFrame,
+            swing_highs_lows: DataFrame,
+            close_mitigation: bool = False,
+    ) -> DataFrame:
         """
         OB - Order Blocks
         This method detects order blocks when there is a high amount of market orders exist on a price range.
@@ -395,7 +405,10 @@ class smc:
         Percentage = strength of order block (min(highVolume, lowVolume)/max(highVolume, lowVolume))
         """
 
+        swing_highs_lows = swing_highs_lows.copy()
+
         ohlc_len = len(ohlc)
+
         _open = ohlc["open"].values
         _high = ohlc["high"].values
         _low = ohlc["low"].values
@@ -439,7 +452,7 @@ class smc:
                         active_bullish.remove(idx)
                 else:
                     if ((not close_mitigation and _low[close_index] < bottom_arr[idx])
-                        or (close_mitigation and min(_open[close_index], _close[close_index]) < bottom_arr[idx])):
+                            or (close_mitigation and min(_open[close_index], _close[close_index]) < bottom_arr[idx])):
                         breaker[idx] = True
                         mitigated_index[idx] = close_index - 1
 
@@ -480,7 +493,8 @@ class smc:
                     lowVolume[obIndex] = vol_prev2
                     highVolume[obIndex] = vol_cur + vol_prev1
                     max_vol = max(highVolume[obIndex], lowVolume[obIndex])
-                    percentage[obIndex] = (min(highVolume[obIndex], lowVolume[obIndex]) / max_vol * 100.0) if max_vol != 0 else 100.0
+                    percentage[obIndex] = (min(highVolume[obIndex],
+                                               lowVolume[obIndex]) / max_vol * 100.0) if max_vol != 0 else 100.0
                     active_bullish.append(obIndex)
 
         # List to track active bearish order blocks
@@ -502,7 +516,7 @@ class smc:
                         active_bearish.remove(idx)
                 else:
                     if ((not close_mitigation and _high[close_index] > top_arr[idx])
-                        or (close_mitigation and max(_open[close_index], _close[close_index]) > top_arr[idx])):
+                            or (close_mitigation and max(_open[close_index], _close[close_index]) > top_arr[idx])):
                         breaker[idx] = True
                         mitigated_index[idx] = close_index
 
@@ -539,7 +553,8 @@ class smc:
                     lowVolume[obIndex] = vol_cur + vol_prev1
                     highVolume[obIndex] = vol_prev2
                     max_vol = max(highVolume[obIndex], lowVolume[obIndex])
-                    percentage[obIndex] = (min(highVolume[obIndex], lowVolume[obIndex]) / max_vol * 100.0) if max_vol != 0 else 100.0
+                    percentage[obIndex] = (min(highVolume[obIndex],
+                                               lowVolume[obIndex]) / max_vol * 100.0) if max_vol != 0 else 100.0
                     active_bearish.append(obIndex)
 
         # Convert zeros to NaN where OB was not set
@@ -570,7 +585,9 @@ class smc:
         )
 
     @classmethod
-    def liquidity(cls, ohlc: DataFrame, swing_highs_lows: DataFrame, range_percent: float = 0.01) -> Series:
+    def liquidity(
+            cls, ohlc: DataFrame, swing_highs_lows: DataFrame, range_percent: float = 0.01
+    ) -> DataFrame:
         """
         Liquidity
         Liquidity is when there are multiple highs within a small range of each other,
@@ -590,7 +607,7 @@ class smc:
         # Work on a copy so the original is not modified.
         shl = swing_highs_lows.copy()
         n = len(ohlc)
-        
+
         # Calculate the pip range based on the overall high-low range.
         pip_range = (ohlc["high"].max() - ohlc["low"].min()) * range_percent
 
@@ -698,7 +715,7 @@ class smc:
         return pd.concat([liq_series, level_series, end_series, swept_series], axis=1)
 
     @classmethod
-    def previous_high_low(cls, ohlc: DataFrame, time_frame: str = "1D") -> Series:
+    def previous_high_low(cls, ohlc: DataFrame, time_frame: str = "1D") -> DataFrame:
         """
         Previous High Low
         This method returns the previous high and low of the given time frame.
@@ -748,7 +765,7 @@ class smc:
                 currently_broken_low = False
                 last_broken_time = resampled_previous_index
 
-            previous_high[i] = resampled_ohlc["high"].iloc[resampled_previous_index] 
+            previous_high[i] = resampled_ohlc["high"].iloc[resampled_previous_index]
             previous_low[i] = resampled_ohlc["low"].iloc[resampled_previous_index]
             currently_broken_high = ohlc["high"].iloc[i] > previous_high[i] or currently_broken_high
             currently_broken_low = ohlc["low"].iloc[i] < previous_low[i] or currently_broken_low
@@ -764,13 +781,13 @@ class smc:
 
     @classmethod
     def sessions(
-        cls,
-        ohlc: DataFrame,
-        session: str,
-        start_time: str = "",
-        end_time: str = "",
-        time_zone: str = "UTC",
-    ) -> Series:
+            cls,
+            ohlc: DataFrame,
+            session: str,
+            start_time: str = "",
+            end_time: str = "",
+            time_zone: str = "UTC",
+    ) -> DataFrame:
         """
         Sessions
         This method returns wwhich candles are within the session specified
@@ -854,8 +871,8 @@ class smc:
             # convert current time to the second of the day
             current_time = datetime.strptime(current_time, "%H:%M")
             if (start_time < end_time and start_time <= current_time <= end_time) or (
-                start_time >= end_time
-                and (start_time <= current_time or current_time <= end_time)
+                    start_time >= end_time
+                    and (start_time <= current_time or current_time <= end_time)
             ):
                 active[i] = 1
                 high[i] = max(ohlc["high"].iloc[i], high[i - 1] if i > 0 else 0)
@@ -871,7 +888,7 @@ class smc:
         return pd.concat([active, high, low], axis=1)
 
     @classmethod
-    def retracements(cls, ohlc: DataFrame, swing_highs_lows: DataFrame) -> Series:
+    def retracements(cls, ohlc: DataFrame, swing_highs_lows: DataFrame) -> DataFrame:
         """
         Retracement
         This method returns the percentage of a retracement from the swing high or low
@@ -894,11 +911,11 @@ class smc:
         top = 0
         bottom = 0
         for i in range(len(ohlc)):
-            if swing_highs_lows["HighLow"][i] == 1:
+            if i in swing_highs_lows["HighLow"] and swing_highs_lows["HighLow"][i] == 1:
                 direction[i] = 1
                 top = swing_highs_lows["Level"][i]
                 # deepest_retracement[i] = 0
-            elif swing_highs_lows["HighLow"][i] == -1:
+            elif i in swing_highs_lows["HighLow"] and swing_highs_lows["HighLow"][i] == -1:
                 direction[i] = -1
                 bottom = swing_highs_lows["Level"][i]
                 # deepest_retracement[i] = 0
